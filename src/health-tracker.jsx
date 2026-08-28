@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
-// 発行された GAS Web アプリ URL
+// 設定済みの GAS Web アプリ URL
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwBFzOf2yYnHuOLAft2YMNDKBIn0wpQD1dg1bk1G6UTvuk3q28HtPmgav4ByMLepNwKEA/exec";
 
 // Google スプレッドシートへのデータ送信処理
@@ -34,7 +34,6 @@ export default function App() {
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
   const [sets, setSets] = useState('');
-  const [time, setTime] = useState('');
   const [memo, setMemo] = useState('');
 
   // コンディショニング チェックリスト
@@ -63,21 +62,15 @@ export default function App() {
       weight: weight ? parseFloat(weight) : null,
       reps: reps ? parseInt(reps, 10) : null,
       sets: sets ? parseInt(sets, 10) : null,
-      time,
       memo
     };
 
-    // ローカル状態に追加
     setLogs(prev => [payload, ...prev]);
-
-    // スプレッドシートへ送信 (カテゴリ: training)
     sendToGoogleSheets('training', payload);
 
-    // フォームリセット
     setWeight('');
     setReps('');
     setSets('');
-    setTime('');
     setMemo('');
   };
 
@@ -94,8 +87,6 @@ export default function App() {
     };
 
     setLogs(prev => [payload, ...prev]);
-
-    // スプレッドシートへ送信
     sendToGoogleSheets('training', payload);
 
     alert(`${type ? type + ' ' : ''}記録を送信しました！`);
@@ -204,24 +195,27 @@ export default function App() {
             <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>その他の種目を記録</h3>
             <p style={{ fontSize: '12px', color: '#8b949e', marginBottom: '12px' }}>マスターにない種目はこちらから自由に記録できます。</p>
             <form onSubmit={handleSingleRecord} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>日付</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ flex: '0 0 130px' }}>
+                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>日付</label>
+                  <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff', fontSize: '12px' }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>種目名</label>
+                  <input
+                    type="text"
+                    value={exercise}
+                    onChange={(e) => setExercise(e.target.value)}
+                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff', fontSize: '12px' }}
+                  />
+                </div>
               </div>
-              <div>
-                <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>種目名</label>
-                <input
-                  type="text"
-                  value={exercise}
-                  onChange={(e) => setExercise(e.target.value)}
-                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                />
-              </div>
+
               <div style={{ display: 'flex', gap: '8px' }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>重量 (kg)</label>
@@ -251,6 +245,7 @@ export default function App() {
                   />
                 </div>
               </div>
+
               <div>
                 <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>メモ</label>
                 <input
@@ -261,6 +256,7 @@ export default function App() {
                   style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
                 />
               </div>
+
               <button
                 type="submit"
                 style={{
@@ -299,6 +295,12 @@ export default function App() {
             )}
           </section>
         </main>
+      )}
+
+      {activeTab !== 'training' && (
+        <div style={{ padding: '40px 0', textAlign: 'center', color: '#8b949e' }}>
+          {activeTab.toUpperCase()} 画面は現在準備中です。
+        </div>
       )}
     </div>
   );

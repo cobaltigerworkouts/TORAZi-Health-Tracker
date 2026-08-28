@@ -4,7 +4,7 @@ import { Plus, Trash2, Calendar, Activity, Utensils, Scale, PieChart, ShieldAler
 const STORAGE_KEY = 'torazi_vital_data_v1';
 
 // Googleスプレッドシートへのリアルタイム自動送信用Webhook (Google Apps Script)
-const GOOGLE_SHEET_WEBHOOK_URL = ""; 
+const GOOGLE_SHEET_WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyagmRzfT2OwDb5cOiPOQNRgjFOhqHmulOIwo-slDoESzGsLy5Jd4o1vNaDP8XLmYOqGQ/exec"; 
 
 const sendToGoogleSheet = async (category, payload) => {
   if (!GOOGLE_SHEET_WEBHOOK_URL) return;

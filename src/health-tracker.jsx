@@ -1,310 +1,353 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Trash2, Calendar, Activity, Utensils, Scale, PieChart, ShieldAlert } from 'lucide-react';
 
-// 設定済みの GAS Web アプリ URL
-const GAS_URL = "https://script.google.com/macros/s/AKfycbwBFzOf2yYnHuOLAft2YMNDKBIn0wpQD1dg1bk1G6UTvuk3q28HtPmgav4ByMLepNwKEA/exec";
+const STORAGE_KEY = 'torazi_vital_data_v1';
 
-// Google スプレッドシートへのデータ送信処理
-const sendToGoogleSheets = async (category, payload) => {
-  if (!GAS_URL) return;
+// Googleスプレッドシートへのリアルタイム自動送信用Webhook (Google Apps Script)
+const GOOGLE_SHEET_WEBHOOK_URL = ""; 
+
+const sendToGoogleSheet = async (category, payload) => {
+  if (!GOOGLE_SHEET_WEBHOOK_URL) return;
   try {
-    await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'no-cors',
+    await fetch(GOOGLE_SHEET_WEBHOOK_URL, {
+      method: "POST",
+      mode: "no-cors",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        category: category,
-        payload: payload,
-      }),
+      body: JSON.stringify({ category, payload }),
     });
-    console.log('スプレッドシートへの送信完了');
   } catch (error) {
-    console.error('スプレッドシート送信エラー:', error);
+    console.error("Error sending to Google Sheet:", error);
   }
 };
 
-export default function App() {
+export default function HealthTracker() {
   const [activeTab, setActiveTab] = useState('training');
-  const [logs, setLogs] = useState([]);
-  
-  // フォームデータ
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [exercise, setExercise] = useState('ベンチプレス');
-  const [weight, setWeight] = useState('');
-  const [reps, setReps] = useState('');
-  const [sets, setSets] = useState('');
-  const [memo, setMemo] = useState('');
+  const [data, setData] = useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error("Failed to parse stored data", e);
+      }
+    }
+    return {
+      workouts: [],
+      intakes: [],
+      metrics: []
+    };
+  });
 
-  // コンディショニング チェックリスト
-  const [checks, setChecks] = useState({});
+  // フォーム用ステート
+  const [workoutForm, setWorkoutForm] = useState({ date: new Date().toISOString().split('T')[0], type: '', duration: '', intensity: 'Normal', note: '' });
+  const [intakeForm, setIntakeForm] = useState({ date: new Date().toISOString().split('T')[0], mealType: 'Breakfast', item: '', calories: '', protein: '' });
+  const [metricForm, setMetricForm] = useState({ date: new Date().toISOString().split('T')[0], weight: '', bodyFat: '', condition: 'Good' });
 
-  const conditioningItems = [
-    'ストレッチポール', '肩甲骨下制(ポール)', '肩甲骨ストレッチ(ポール)', '腰捻り胸開き',
-    '股関節回し', '脇腹と股関節のストレッチ', 'ABS PUSH 15回×3set', 'ヒップリフト 10回×3set',
-    '股関節ストレッチ(ポール)', '股割ストレッチ', '肩甲骨リリース', 'Cat and Dog',
-    'HIP MOBILITY 40回×1set', '四つ這い体幹トレーニング 20回×1set', 'プランク 45秒×3set', 'カーフレイズ 15回×3set'
-  ];
+  // データ保存処理（画面更新・ローカル保存・GAS送信を一体化）
+  const addItem = useCallback((category, item) => {
+    setData(prev => {
+      const next = { ...prev, [category]: [...(prev[category] || []), item] };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
 
-  const toggleCheck = (item) => {
-    setChecks(prev => ({ ...prev, [item]: !prev[item] }));
-  };
+    // 画面やローカル保存に影響を与えない安全なGAS送信
+    try {
+      if (typeof sendToGoogleSheet === 'function') {
+        sendToGoogleSheet(category, item);
+      }
+    } catch (e) {
+      console.error("スプレッドシート送信エラー:", e);
+    }
+  }, []);
 
-  // その他の種目を記録
-  const handleSingleRecord = (e) => {
+  // データ削除処理
+  const removeItem = useCallback((category, id) => {
+    setData(prev => {
+      const next = { ...prev, [category]: (prev[category] || []).filter(item => item.id !== id) };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const handleWorkoutSubmit = (e) => {
     e.preventDefault();
-    if (!exercise) return;
-
-    const payload = {
-      createdAt: new Date().toISOString(),
-      date,
-      exercise,
-      weight: weight ? parseFloat(weight) : null,
-      reps: reps ? parseInt(reps, 10) : null,
-      sets: sets ? parseInt(sets, 10) : null,
-      memo
-    };
-
-    setLogs(prev => [payload, ...prev]);
-    sendToGoogleSheets('training', payload);
-
-    setWeight('');
-    setReps('');
-    setSets('');
-    setMemo('');
+    if (!workoutForm.type) return;
+    addItem('workouts', { ...workoutForm, id: Date.now() });
+    setWorkoutForm({ date: new Date().toISOString().split('T')[0], type: '', duration: '', intensity: 'Normal', note: '' });
   };
 
-  // まとめて記録する (TORAZi 種目メニュー & コンディショニング)
-  const handleBatchRecord = (type) => {
-    const completedConditioning = Object.keys(checks).filter(k => checks[k]);
-    
-    const payload = {
-      createdAt: new Date().toISOString(),
-      date,
-      menuType: type || 'TORAZi Bulk Record',
-      completedConditioning: completedConditioning.join(', '),
-      memo: 'まとめて記録'
-    };
+  const handleIntakeSubmit = (e) => {
+    e.preventDefault();
+    if (!intakeForm.item) return;
+    addItem('intakes', { ...intakeForm, id: Date.now() });
+    setIntakeForm({ date: new Date().toISOString().split('T')[0], mealType: 'Breakfast', item: '', calories: '', protein: '' });
+  };
 
-    setLogs(prev => [payload, ...prev]);
-    sendToGoogleSheets('training', payload);
-
-    alert(`${type ? type + ' ' : ''}記録を送信しました！`);
+  const handleMetricSubmit = (e) => {
+    e.preventDefault();
+    if (!metricForm.weight) return;
+    addItem('metrics', { ...metricForm, id: Date.now() });
+    setMetricForm({ date: new Date().toISOString().split('T')[0], weight: '', bodyFat: '', condition: 'Good' });
   };
 
   return (
-    <div style={{ backgroundColor: '#0d1117', color: '#e6edf3', minHeight: '100vh', padding: '16px', fontFamily: 'sans-serif' }}>
-      <header style={{ marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '18px', color: '#8b949e', marginBottom: '10px' }}>VITALS LOG</h1>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {['training', 'intakes', 'metrics', 'overview'].map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '6px',
-                border: '1px solid #30363d',
-                backgroundColor: activeTab === tab ? '#2ea043' : '#21262d',
-                color: '#fff',
-                cursor: 'pointer',
-                textTransform: 'capitalize'
-              }}
-            >
-              {tab === 'training' ? 'Training' : tab === 'intakes' ? 'Intakes' : tab === 'metrics' ? 'Metrics' : 'Overview'}
-            </button>
-          ))}
+    <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8 font-sans">
+      <header className="max-w-5xl mx-auto mb-8 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-wider text-emerald-400 flex items-center gap-2">
+            <Activity className="h-6 w-6" /> TORAZi Vital Monitor
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">Health & Fitness Tracking System</p>
         </div>
       </header>
 
-      {/* Training タブ */}
-      {activeTab === 'training' && (
-        <main>
-          <h2 style={{ fontSize: '24px', marginBottom: '4px' }}>Training</h2>
-          <p style={{ fontSize: '12px', color: '#8b949e', marginBottom: '20px' }}>
-            食事・サプリ・薬・運動・体重・血液検査・健診・体組成をまとめて記録します
-          </p>
+      <main className="max-w-5xl mx-auto">
+        {/* Navigation Tabs */}
+        <div className="flex space-x-2 border-b border-slate-800 mb-6 overflow-x-auto pb-2">
+          <button
+            onClick={() => setActiveTab('training')}
+            className={`px-4 py-2 rounded-t-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              activeTab === 'training' ? 'bg-emerald-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Activity className="h-4 w-4" /> Training
+          </button>
+          <button
+            onClick={() => setActiveTab('intakes')}
+            className={`px-4 py-2 rounded-t-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              activeTab === 'intakes' ? 'bg-emerald-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Utensils className="h-4 w-4" /> Intakes
+          </button>
+          <button
+            onClick={() => setActiveTab('metrics')}
+            className={`px-4 py-2 rounded-t-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              activeTab === 'metrics' ? 'bg-emerald-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <Scale className="h-4 w-4" /> Metrics
+          </button>
+          <button
+            onClick={() => setActiveTab('overview')}
+            className={`px-4 py-2 rounded-t-lg text-sm font-medium flex items-center gap-2 transition-colors ${
+              activeTab === 'overview' ? 'bg-emerald-500 text-slate-950 font-semibold' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+            }`}
+          >
+            <PieChart className="h-4 w-4" /> Overview
+          </button>
+        </div>
 
-          {/* コンディショニング */}
-          <section style={{ backgroundColor: '#161b22', padding: '16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #30363d' }}>
-            <h3 style={{ fontSize: '16px', color: '#3fb950', marginBottom: '8px' }}>コンディショニング</h3>
-            <p style={{ fontSize: '12px', color: '#8b949e', marginBottom: '12px' }}>
-              重量は関係なし。やったものだけタップしてチェックしてください。
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {conditioningItems.map((item) => (
-                <button
-                  key={item}
-                  onClick={() => toggleCheck(item)}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '6px',
-                    border: '1px solid #30363d',
-                    backgroundColor: checks[item] ? '#238636' : '#21262d',
-                    color: '#fff',
-                    fontSize: '13px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {checks[item] ? '✓ ' : '☐ '}{item}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* TORAZi 種目メニュー */}
-          <section style={{ backgroundColor: '#161b22', padding: '16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #30363d' }}>
-            <h3 style={{ fontSize: '16px', color: '#ffffff', fontWeight: 'bold', marginBottom: '12px' }}>TORAZi 種目メニュー</h3>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-              {['胸', '背', '脚', '尻', '整'].map((menu) => (
-                <button
-                  key={menu}
-                  onClick={() => handleBatchRecord(`虎${menu}`)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    border: '1px solid #30363d',
-                    backgroundColor: '#21262d',
-                    color: '#fff',
-                    fontWeight: 'bold',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {menu}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => handleBatchRecord()}
-              style={{
-                width: '100%',
-                padding: '10px',
-                borderRadius: '6px',
-                border: 'none',
-                backgroundColor: '#2ea043',
-                color: '#fff',
-                fontWeight: 'bold',
-                cursor: 'pointer'
-              }}
-            >
-              ＋ まとめて記録する
-            </button>
-          </section>
-
-          {/* その他の種目を記録 */}
-          <section style={{ backgroundColor: '#161b22', padding: '16px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #30363d' }}>
-            <h3 style={{ fontSize: '16px', marginBottom: '4px' }}>その他の種目を記録</h3>
-            <p style={{ fontSize: '12px', color: '#8b949e', marginBottom: '12px' }}>マスターにない種目はこちらから自由に記録できます。</p>
-            <form onSubmit={handleSingleRecord} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ flex: '0 0 130px' }}>
-                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>日付</label>
-                  <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff', fontSize: '12px' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>種目名</label>
-                  <input
-                    type="text"
-                    value={exercise}
-                    onChange={(e) => setExercise(e.target.value)}
-                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff', fontSize: '12px' }}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>重量 (kg)</label>
-                  <input
-                    type="number"
-                    value={weight}
-                    onChange={(e) => setWeight(e.target.value)}
-                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>回数 (reps)</label>
-                  <input
-                    type="number"
-                    value={reps}
-                    onChange={(e) => setReps(e.target.value)}
-                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                  />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>セット数</label>
-                  <input
-                    type="number"
-                    value={sets}
-                    onChange={(e) => setSets(e.target.value)}
-                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                  />
-                </div>
-              </div>
-
+        {/* Tab contents */}
+        {activeTab === 'training' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <form onSubmit={handleWorkoutSubmit} className="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4">
+              <h2 className="text-lg font-semibold text-emerald-400 mb-2">Log Workout</h2>
               <div>
-                <label style={{ fontSize: '12px', display: 'block', marginBottom: '4px' }}>メモ</label>
-                <input
-                  type="text"
-                  value={memo}
-                  onChange={(e) => setMemo(e.target.value)}
-                  placeholder="調子・フォームなど"
-                  style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #30363d', backgroundColor: '#0d1117', color: '#fff' }}
-                />
+                <label className="block text-xs text-slate-400 mb-1">Date</label>
+                <input type="date" value={workoutForm.date} onChange={e => setWorkoutForm({...workoutForm, date: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
               </div>
-
-              <button
-                type="submit"
-                style={{
-                  padding: '10px',
-                  borderRadius: '6px',
-                  border: 'none',
-                  backgroundColor: '#238636',
-                  color: '#fff',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                  marginTop: '8px'
-                }}
-              >
-                記録する
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Type / Exercise</label>
+                <input type="text" placeholder="e.g. Bench Press, Running" value={workoutForm.type} onChange={e => setWorkoutForm({...workoutForm, type: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Duration (min)</label>
+                  <input type="number" placeholder="45" value={workoutForm.duration} onChange={e => setWorkoutForm({...workoutForm, duration: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Intensity</label>
+                  <select value={workoutForm.intensity} onChange={e => setWorkoutForm({...workoutForm, intensity: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
+                    <option>Light</option>
+                    <option>Normal</option>
+                    <option>High</option>
+                    <option>Max</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Note</label>
+                <input type="text" placeholder="Sets, reps, or feeling" value={workoutForm.note} onChange={e => setWorkoutForm({...workoutForm, note: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+              </div>
+              <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2 text-sm">
+                <Plus className="h-4 w-4" /> Add Workout
               </button>
             </form>
-          </section>
 
-          {/* ログ一覧 */}
-          <section style={{ backgroundColor: '#161b22', padding: '16px', borderRadius: '8px', border: '1px solid #30363d' }}>
-            <h3 style={{ fontSize: '16px', marginBottom: '12px' }}>ログ</h3>
-            {logs.length === 0 ? (
-              <p style={{ fontSize: '12px', color: '#8b949e' }}>まだ記録がありません。上のフォームから最初のセットを記録しましょう。</p>
-            ) : (
-              <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                {logs.map((log, idx) => (
-                  <li key={idx} style={{ padding: '8px 0', borderBottom: '1px solid #30363d', fontSize: '13px' }}>
-                    <strong>{log.date}</strong> - {log.exercise || log.menuType}
-                    {log.weight && ` | ${log.weight}kg`}
-                    {log.reps && ` x ${log.reps}reps`}
-                    {log.sets && ` (${log.sets}sets)`}
-                    {log.completedConditioning && ` | コンディショニング: ${log.completedConditioning}`}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </main>
-      )}
+            <div className="md:col-span-2 bg-slate-900 p-5 rounded-xl border border-slate-800">
+              <h2 className="text-lg font-semibold text-slate-200 mb-4">Workout Logs</h2>
+              {data.workouts.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No workouts recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {data.workouts.slice().reverse().map(item => (
+                    <div key={item.id} className="bg-slate-950 p-3 rounded border border-slate-800 flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{item.date}</span>
+                          <span className="text-sm font-medium text-emerald-400">{item.type}</span>
+                          <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">{item.intensity}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{item.duration ? `${item.duration} min` : ''} {item.note ? `| ${item.note}` : ''}</p>
+                      </div>
+                      <button onClick={() => removeItem('workouts', item.id)} className="text-slate-500 hover:text-rose-400 p-1">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
-      {/* その他のタブ（Intakes, Metrics, Overview） */}
-      {activeTab !== 'training' && (
-        <div style={{ backgroundColor: '#161b22', padding: '40px 20px', borderRadius: '8px', textAlign: 'center', color: '#8b949e', border: '1px solid #30363d', marginTop: '20px' }}>
-          <h2 style={{ color: '#ffffff', fontSize: '20px', marginBottom: '8px', textTransform: 'uppercase' }}>{activeTab}</h2>
-          <p style={{ fontSize: '14px' }}>この画面は現在準備中です。</p>
-        </div>
-      )}
+        {activeTab === 'intakes' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <form onSubmit={handleIntakeSubmit} className="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4">
+              <h2 className="text-lg font-semibold text-emerald-400 mb-2">Log Intake</h2>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Date</label>
+                <input type="date" value={intakeForm.date} onChange={e => setIntakeForm({...intakeForm, date: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Timing / Type</label>
+                <select value={intakeForm.mealType} onChange={e => setIntakeForm({...intakeForm, mealType: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
+                  <option>Breakfast</option>
+                  <option>Lunch</option>
+                  <option>Dinner</option>
+                  <option>Snack</option>
+                  <option>Supplement</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Item Name</label>
+                <input type="text" placeholder="e.g. Chicken breast, Whey protein" value={intakeForm.item} onChange={e => setIntakeForm({...intakeForm, item: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Calories (kcal)</label>
+                  <input type="number" placeholder="450" value={intakeForm.calories} onChange={e => setIntakeForm({...intakeForm, calories: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Protein (g)</label>
+                  <input type="number" placeholder="30" value={intakeForm.protein} onChange={e => setIntakeForm({...intakeForm, protein: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+              </div>
+              <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2 text-sm">
+                <Plus className="h-4 w-4" /> Add Intake
+              </button>
+            </form>
+
+            <div className="md:col-span-2 bg-slate-900 p-5 rounded-xl border border-slate-800">
+              <h2 className="text-lg font-semibold text-slate-200 mb-4">Intake Logs</h2>
+              {data.intakes.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No nutrition logs recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {data.intakes.slice().reverse().map(item => (
+                    <div key={item.id} className="bg-slate-950 p-3 rounded border border-slate-800 flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{item.date}</span>
+                          <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">{item.mealType}</span>
+                          <span className="text-sm font-medium text-emerald-400">{item.item}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">{item.calories ? `${item.calories} kcal` : ''} {item.protein ? `| Protein: ${item.protein}g` : ''}</p>
+                      </div>
+                      <button onClick={() => removeItem('intakes', item.id)} className="text-slate-500 hover:text-rose-400 p-1">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'metrics' && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <form onSubmit={handleMetricSubmit} className="bg-slate-900 p-5 rounded-xl border border-slate-800 space-y-4">
+              <h2 className="text-lg font-semibold text-emerald-400 mb-2">Log Body Metrics</h2>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Date</label>
+                <input type="date" value={metricForm.date} onChange={e => setMetricForm({...metricForm, date: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Weight (kg)</label>
+                  <input type="number" step="0.1" placeholder="70.5" value={metricForm.weight} onChange={e => setMetricForm({...metricForm, weight: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Body Fat (%)</label>
+                  <input type="number" step="0.1" placeholder="15.0" value={metricForm.bodyFat} onChange={e => setMetricForm({...metricForm, bodyFat: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Condition</label>
+                <select value={metricForm.condition} onChange={e => setMetricForm({...metricForm, condition: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-emerald-500">
+                  <option>Great</option>
+                  <option>Good</option>
+                  <option>Tired</option>
+                  <option>Poor</option>
+                </select>
+              </div>
+              <button type="submit" className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold py-2 rounded transition-colors flex items-center justify-center gap-2 text-sm">
+                <Plus className="h-4 w-4" /> Add Metric
+              </button>
+            </form>
+
+            <div className="md:col-span-2 bg-slate-900 p-5 rounded-xl border border-slate-800">
+              <h2 className="text-lg font-semibold text-slate-200 mb-4">Metric Logs</h2>
+              {data.metrics.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No body metrics recorded yet.</p>
+              ) : (
+                <div className="space-y-3">
+                  {data.metrics.slice().reverse().map(item => (
+                    <div key={item.id} className="bg-slate-950 p-3 rounded border border-slate-800 flex justify-between items-center">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-slate-400">{item.date}</span>
+                          <span className="text-sm font-medium text-emerald-400">{item.weight} kg</span>
+                          {item.bodyFat && <span className="text-xs text-slate-300">({item.bodyFat}%)</span>}
+                          <span className="text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">{item.condition}</span>
+                        </div>
+                      </div>
+                      <button onClick={() => removeItem('metrics', item.id)} className="text-slate-500 hover:text-rose-400 p-1">
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'overview' && (
+          <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 space-y-6">
+            <h2 className="text-lg font-semibold text-emerald-400">Dashboard Overview</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <p className="text-xs text-slate-400">Total Workouts</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">{data.workouts.length}</p>
+              </div>
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <p className="text-xs text-slate-400">Total Intake Logs</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">{data.intakes.length}</p>
+              </div>
+              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                <p className="text-xs text-slate-400">Weight Logs</p>
+                <p className="text-2xl font-bold text-slate-100 mt-1">{data.metrics.length}</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
     </div>
   );
 }

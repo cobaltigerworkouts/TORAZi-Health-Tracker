@@ -117,6 +117,7 @@ export default function App() {
         </div>
       </header>
 
+      {/* Training タブ */}
       {activeTab === 'training' && (
         <main>
           <h2 style={{ fontSize: '24px', marginBottom: '4px' }}>Training</h2>
@@ -297,9 +298,11 @@ export default function App() {
         </main>
       )}
 
+      {/* その他のタブ（Intakes, Metrics, Overview） */}
       {activeTab !== 'training' && (
-        <div style={{ padding: '40px 0', textAlign: 'center', color: '#8b949e' }}>
-          {activeTab.toUpperCase()} 画面は現在準備中です。
+        <div style={{ backgroundColor: '#161b22', padding: '40px 20px', borderRadius: '8px', textAlign: 'center', color: '#8b949e', border: '1px solid #30363d', marginTop: '20px' }}>
+          <h2 style={{ color: '#ffffff', fontSize: '20px', marginBottom: '8px', textTransform: 'uppercase' }}>{activeTab}</h2>
+          <p style={{ fontSize: '14px' }}>この画面は現在準備中です。</p>
         </div>
       )}
     </div>
